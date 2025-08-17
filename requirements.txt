@@ -5,3 +5,5 @@ opencv-python
 pdf2image
 numpy
 python-multipart
+pillow
+PyMuPDF

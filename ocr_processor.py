@@ -3,8 +3,10 @@ import cv2
 import pytesseract
 import numpy as np
 import os
+import fitz  # PyMuPDF
+import io
+from PIL import Image
 from pdf2image import convert_from_path
-
 
 def preprocess_image(image_path):
     """Preprocess image for better OCR results"""
@@ -12,7 +14,6 @@ def preprocess_image(image_path):
     gray = cv2.cvtColor(np.array(image), cv2.COLOR_BGR2GRAY)
     _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     return thresh
-
 
 def rotate_image_for_ocr(image):
     """Auto-rotate image based on text orientation"""
@@ -29,7 +30,6 @@ def rotate_image_for_ocr(image):
         pass
     return image
 
-
 def ocr_image(image_path):
     """Perform OCR on image with rotation correction"""
     processed = preprocess_image(image_path)
@@ -38,20 +38,53 @@ def ocr_image(image_path):
     text = pytesseract.image_to_string(rotated, config=custom_config, lang='ara')
     return text
 
+def ocr_pdf_pymupdf(pdf_path):
+    """Extract text from PDF using PyMuPDF (no external dependencies)"""
+    if not os.path.exists(pdf_path):
+        raise FileNotFoundError(f"PDF file not found: {pdf_path}")
+    
+    doc = fitz.open(pdf_path)
+    full_text = ""
+    
+    for page_num in range(doc.page_count):
+        page = doc[page_num]
+        
+        # Convert page to image (pixmap)
+        mat = fitz.Matrix(2.5, 2.5)  # 2.5x zoom for better quality
+        pix = page.get_pixmap(matrix=mat, colorspace="gray")
 
-def ocr_pdf(pdf_path):
+        # Convert to PIL Image
+        img = Image.frombytes("L", [pix.width, pix.height], pix.samples)
+        
+        # Save temporarily for OCR processing
+        temp_image = f"temp_page_{page_num}.png"
+        img.save(temp_image, "PNG", optimize=True)
+        
+        # Perform OCR
+        text = ocr_image(temp_image)
+        full_text += f"\n--- Page {page_num + 1} ---\n{text}"
+        
+        # Cleanup
+        os.remove(temp_image)
+        pix = None 
+    
+    doc.close()
+    return full_text
+
+def ocr_pdf_pdf2image(pdf_path):
     """Extract text from PDF by converting pages to images"""
     if not os.path.exists(pdf_path):
         raise FileNotFoundError(f"PDF file not found: {pdf_path}")
-
     pages = convert_from_path(pdf_path, dpi=200)
     full_text = ""
-
     for i, page in enumerate(pages):
-        temp_image = f"temp_page_{i}.jpg"
+        temp_image = f"temppage{i}.jpg"
         page.save(temp_image, "JPEG")
         text = ocr_image(temp_image)
         full_text += f"\n--- Page {i+1} ---\n{text}"
-        os.remove(temp_image)  # Cleanup
-
+        os.remove(temp_image) # Cleanup
     return full_text
+
+def ocr_pdf(pdf_path):
+    """Main PDF OCR function - now uses PyMuPDF"""
+    return ocr_pdf_pymupdf(pdf_path)
